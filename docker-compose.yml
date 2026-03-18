@@ -1,0 +1,12 @@
+services:
+  mixd-api:
+    build: .
+    container_name: mixd-song-api
+    ports:
+      - "6493:8000"
+    volumes:
+      - ./songs:/songs
+      - ./api_keys.json:/app/api_keys.json
+    env_file:
+      - .env
+    restart: unless-stopped

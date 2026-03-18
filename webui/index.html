@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mixd — Song Search & Download</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0f;
+      --surface: #13131a;
+      --surface-2: #1a1a24;
+      --border: #2a2a3a;
+      --text: #e8e8f0;
+      --text-dim: #8888a0;
+      --accent: #7c5cfc;
+      --accent-glow: #7c5cfc44;
+      --green: #34d399;
+      --red: #f87171;
+      --orange: #fbbf24;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+
+    /* Header */
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+
+    header h1 {
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #7c5cfc, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.25rem;
+    }
+
+    header p {
+      color: var(--text-dim);
+      font-size: 0.95rem;
+    }
+
+    /* Config bar */
+    .config-bar {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      align-items: center;
+    }
+
+    .config-bar input {
+      flex: 1;
+      padding: 0.65rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .config-bar input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .config-bar input::placeholder { color: var(--text-dim); }
+
+    .health-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: var(--border);
+      flex-shrink: 0;
+      transition: background 0.3s;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .health-dot.ok { background: var(--green); box-shadow: 0 0 8px #34d39966; }
+    .health-dot.err { background: var(--red); box-shadow: 0 0 8px #f8717166; }
+
+    .health-tooltip {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 24px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      white-space: nowrap;
+      z-index: 10;
+    }
+
+    .health-dot:hover .health-tooltip { display: block; }
+
+    /* Search */
+    .search-box {
+      position: relative;
+      margin-bottom: 2rem;
+    }
+
+    .search-box input {
+      width: 100%;
+      padding: 1rem 1.25rem 1rem 3rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      color: var(--text);
+      font-size: 1.05rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .search-box input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px var(--accent-glow);
+    }
+
+    .search-box input::placeholder { color: var(--text-dim); }
+
+    .search-icon {
+      position: absolute;
+      left: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-dim);
+      pointer-events: none;
+    }
+
+    .search-hint {
+      position: absolute;
+      right: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-dim);
+      font-size: 0.75rem;
+      pointer-events: none;
+      opacity: 0.6;
+    }
+
+    /* Status */
+    .status {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-dim);
+      font-size: 0.95rem;
+    }
+
+    .status.error { color: var(--red); }
+
+    .spinner {
+      display: inline-block;
+      width: 24px; height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-bottom: 0.75rem;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Results */
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .results-header h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    .results-header span {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .result-card {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 0.75rem;
+      transition: border-color 0.2s, transform 0.15s;
+      cursor: default;
+    }
+
+    .result-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    .result-art {
+      width: 64px;
+      height: 64px;
+      border-radius: 8px;
+      background: var(--surface-2);
+      flex-shrink: 0;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      font-size: 1.5rem;
+    }
+
+    .result-art img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .result-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .result-title {
+      font-weight: 600;
+      font-size: 1rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .result-artist {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .result-album {
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      opacity: 0.7;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .result-meta {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .score-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      background: var(--surface-2);
+      color: var(--text-dim);
+    }
+
+    .score-badge.high { color: var(--green); background: #34d39915; }
+    .score-badge.mid { color: var(--orange); background: #fbbf2415; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      color: #fff;
+    }
+
+    .btn:hover { opacity: 0.85; }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-download {
+      background: var(--accent);
+    }
+
+    .btn-download.downloading {
+      background: var(--surface-2);
+      color: var(--text-dim);
+    }
+
+    .btn-play {
+      background: var(--green);
+      color: #000;
+    }
+
+    /* Player */
+    .player-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
+      display: none;
+      align-items: center;
+      gap: 1rem;
+      backdrop-filter: blur(20px);
+      z-index: 100;
+    }
+
+    .player-bar.visible { display: flex; }
+
+    .player-art {
+      width: 48px; height: 48px;
+      border-radius: 6px;
+      background: var(--surface-2);
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .player-art img { width: 100%; height: 100%; object-fit: cover; }
+
+    .player-info {
+      flex-shrink: 0;
+      min-width: 0;
+      max-width: 200px;
+    }
+
+    .player-info .title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .player-info .artist {
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .player-controls {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .player-controls button {
+      background: none;
+      border: none;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 1.25rem;
+      padding: 0.25rem;
+      transition: color 0.2s;
+    }
+
+    .player-controls button:hover { color: var(--accent); }
+
+    .progress-bar {
+      flex: 1;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.1s linear;
+    }
+
+    .player-time {
+      color: var(--text-dim);
+      font-size: 0.75rem;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+
+    /* Modal / Download Status */
+    .toast-container {
+      position: fixed;
+      top: 1.5rem;
+      right: 1.5rem;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .toast {
+      padding: 0.75rem 1.25rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 0.85rem;
+      animation: slideIn 0.3s ease;
+      max-width: 350px;
+    }
+
+    .toast.success { border-color: var(--green); }
+    .toast.error { border-color: var(--red); color: var(--red); }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(20px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* Artist cards */
+    .artist-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+      transition: border-color 0.2s;
+    }
+
+    .artist-card:hover { border-color: var(--accent); }
+
+    .artist-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      cursor: pointer;
+    }
+
+    .artist-avatar {
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), #c084fc);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .artist-info { flex: 1; min-width: 0; }
+
+    .artist-name {
+      font-size: 1.15rem;
+      font-weight: 700;
+    }
+
+    .artist-meta {
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      margin-top: 0.15rem;
+    }
+
+    .artist-tags {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      margin-top: 0.4rem;
+    }
+
+    .artist-tag {
+      font-size: 0.7rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      background: var(--surface-2);
+      color: var(--text-dim);
+    }
+
+    .artist-songs {
+      margin-top: 0.75rem;
+      padding-left: 0.5rem;
+      border-left: 2px solid var(--border);
+      margin-left: 1.5rem;
+    }
+
+    .artist-songs .result-card {
+      border: none;
+      background: transparent;
+      padding: 0.6rem 0.75rem;
+      margin-bottom: 0.25rem;
+      border-radius: 8px;
+    }
+
+    .artist-songs .result-card:hover {
+      background: var(--surface-2);
+      transform: none;
+    }
+
+    .artist-songs .result-art {
+      width: 44px;
+      height: 44px;
+      border-radius: 6px;
+    }
+
+    .artist-browse-hint {
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .container { padding: 1.25rem 1rem; }
+      header h1 { font-size: 1.75rem; }
+      .result-card { flex-wrap: wrap; }
+      .result-meta { flex-direction: row; width: 100%; justify-content: flex-end; }
+      .config-bar { flex-direction: column; }
+      .config-bar input { width: 100%; }
+      .player-info { max-width: 120px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Mixd</h1>
+      <p>Search, preview & download songs</p>
+    </header>
+
+    <div class="config-bar">
+      <input type="text" id="apiUrl" placeholder="API URL (e.g. http://localhost:6493)" value="">
+      <input type="password" id="apiKey" placeholder="API Key (mxd_live_...)">
+      <div class="health-dot" id="healthDot" title="Click to check health">
+        <div class="health-tooltip" id="healthTooltip">Not checked</div>
+      </div>
+    </div>
+
+    <div class="search-box">
+      <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" id="searchInput" placeholder="Search for a song or artist..." autocomplete="off">
+      <span class="search-hint">Enter to search</span>
+    </div>
+
+    <div id="content">
+      <div class="status" id="emptyState">Type a song name or "Artist - Title" to get started</div>
+    </div>
+  </div>
+
+  <!-- Player bar -->
+  <div class="player-bar" id="playerBar">
+    <div class="player-art" id="playerArt"></div>
+    <div class="player-info">
+      <div class="title" id="playerTitle">—</div>
+      <div class="artist" id="playerArtist">—</div>
+    </div>
+    <div class="player-controls">
+      <button id="playPauseBtn" onclick="togglePlayPause()">&#9654;</button>
+      <div class="progress-bar" id="progressBar" onclick="seekAudio(event)">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <span class="player-time" id="playerTime">0:00 / 0:00</span>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div class="toast-container" id="toasts"></div>
+
+  <audio id="audioEl"></audio>
+
+  <script>
+    // State
+    let searchResults = [];
+    let searchArtists = [];
+    let displayedResults = [];
+    let downloadedSongs = {};  // mbid -> SongRecord
+    const audio = document.getElementById('audioEl');
+
+    // --- Local search cache ---
+    // Maps normalized query -> { results, artists, timestamp }
+    const searchCache = new Map();
+    const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+    let lastApiQuery = '';  // the query that produced the current cached results
+
+    // Elements
+    const apiUrlEl = document.getElementById('apiUrl');
+    const apiKeyEl = document.getElementById('apiKey');
+    const searchEl = document.getElementById('searchInput');
+    const contentEl = document.getElementById('content');
+    const healthDot = document.getElementById('healthDot');
+    const healthTooltip = document.getElementById('healthTooltip');
+    const playerBar = document.getElementById('playerBar');
+
+    // Persist config
+    if (localStorage.getItem('mixd_url')) apiUrlEl.value = localStorage.getItem('mixd_url');
+    if (localStorage.getItem('mixd_key')) apiKeyEl.value = localStorage.getItem('mixd_key');
+
+    apiUrlEl.addEventListener('change', () => localStorage.setItem('mixd_url', apiUrlEl.value));
+    apiKeyEl.addEventListener('change', () => localStorage.setItem('mixd_key', apiKeyEl.value));
+
+    // API helpers
+    function baseUrl() { return (apiUrlEl.value || window.location.origin).replace(/\/+$/, ''); }
+    function headers() { return { 'Content-Type': 'application/json', 'X-API-Key': apiKeyEl.value }; }
+
+    async function apiPost(path, body) {
+      const res = await fetch(baseUrl() + path, {
+        method: 'POST', headers: headers(), body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `${res.status} ${res.statusText}`);
+      }
+      return res.json();
+    }
+
+    // Health check
+    async function checkHealth() {
+      try {
+        const data = await fetch(baseUrl() + '/api/health').then(r => r.json());
+        healthDot.className = 'health-dot ok';
+        healthTooltip.textContent = `${data.status} — ${data.songs_count} songs, ${data.storage_used_mb.toFixed(1)} MB`;
+      } catch (e) {
+        healthDot.className = 'health-dot err';
+        healthTooltip.textContent = `Unreachable: ${e.message}`;
+      }
+    }
+
+    healthDot.addEventListener('click', checkHealth);
+    checkHealth();
+
+    // --- Search logic ---
+    let searchTimeout = null;
+    let activeAbort = null;  // AbortController for in-flight request
+
+    // Enter = full search (non-fast, most precise)
+    searchEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        clearTimeout(searchTimeout);
+        doSearch(false);
+      }
+    });
+
+    // Typing = try local cache filter first, then debounced fast API search
+    searchEl.addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      const q = searchEl.value.trim();
+      if (q.length < 2) {
+        if (searchResults.length) { displayedResults = searchResults; renderResults(); }
+        return;
+      }
+
+      // 1. Check if we have an exact cache hit
+      const cacheKey = q.toLowerCase();
+      const cached = searchCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+        searchResults = cached.results;
+        searchArtists = cached.artists || [];
+        displayedResults = searchResults;
+        renderResults();
+        return;
+      }
+
+      // 2. Try filtering current results locally (instant)
+      if (searchResults.length > 0) {
+        const lower = q.toLowerCase();
+        const filtered = searchResults.filter(r =>
+          r.title.toLowerCase().includes(lower) ||
+          r.artist.toLowerCase().includes(lower) ||
+          (r.album && r.album.toLowerCase().includes(lower))
+        );
+        if (filtered.length > 0) {
+          displayedResults = filtered;
+          renderResults(true);
+        }
+      }
+
+      // 3. Debounced API call (fast mode) for fresh results
+      searchTimeout = setTimeout(() => doSearch(true), 500);
+    });
+
+    async function doSearch(fast = false) {
+      const query = searchEl.value.trim();
+      if (!query) return;
+      if (!apiKeyEl.value) { toast('Enter your API key first', 'error'); return; }
+
+      const cacheKey = query.toLowerCase();
+
+      // Check local cache
+      const cached = searchCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+        searchResults = cached.results;
+        searchArtists = cached.artists || [];
+        displayedResults = searchResults;
+        renderResults();
+        return;
+      }
+
+      // Cancel any in-flight request
+      if (activeAbort) activeAbort.abort();
+      activeAbort = new AbortController();
+
+      showLoading('Searching...');
+
+      try {
+        const url = baseUrl() + '/api/search' + (fast ? '?fast=true' : '');
+        const data = await fetch(url, {
+          method: 'POST', headers: headers(),
+          body: JSON.stringify({ query }),
+          signal: activeAbort.signal,
+        }).then(r => {
+          if (!r.ok) throw new Error(`Search failed (${r.status})`);
+          return r.json();
+        });
+
+        searchResults = data.results || [];
+        searchArtists = data.artists || [];
+        displayedResults = searchResults;
+
+        // Cache the results
+        searchCache.set(cacheKey, { results: searchResults, artists: searchArtists, timestamp: Date.now() });
+
+        renderResults();
+      } catch (e) {
+        if (e.name === 'AbortError') return;  // superseded by newer search
+        showError(e.message);
+      }
+    }
+
+    function showLoading(msg) {
+      contentEl.innerHTML = `<div class="status"><div class="spinner"></div><br>${msg}</div>`;
+    }
+
+    function showError(msg) {
+      contentEl.innerHTML = `<div class="status error">${escHtml(msg)}</div>`;
+    }
+
+    function renderResults(isFiltered = false) {
+      if (displayedResults.length === 0 && searchArtists.length === 0) {
+        const hint = isFiltered
+          ? 'No matches in cached results — press Enter to search the full database'
+          : 'No results found';
+        contentEl.innerHTML = `<div class="status">${hint}</div>`;
+        return;
+      }
+
+      let html = '';
+
+      // Artist cards
+      if (!isFiltered && searchArtists.length > 0) {
+        searchArtists.forEach(artist => {
+          const initials = artist.name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+          const metaParts = [artist.type, artist.country].filter(Boolean);
+
+          html += `<div class="artist-card">
+            <div class="artist-header" onclick="filterByArtist('${escAttr(artist.name)}')">
+              <div class="artist-avatar">${escHtml(initials)}</div>
+              <div class="artist-info">
+                <div class="artist-name">${escHtml(artist.name)}</div>
+                ${metaParts.length ? `<div class="artist-meta">${escHtml(metaParts.join(' \u00b7 '))}</div>` : ''}
+                ${artist.tags.length ? `<div class="artist-tags">${artist.tags.slice(0, 5).map(t => `<span class="artist-tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
+              </div>
+              <span class="artist-browse-hint">Browse all \u2192</span>
+            </div>`;
+
+          if (artist.top_songs && artist.top_songs.length > 0) {
+            html += `<div class="artist-songs">`;
+            artist.top_songs.forEach((r, i) => {
+              const artImg = r.album_art_url
+                ? `<img src="${escAttr(r.album_art_url)}" alt="" loading="lazy" onerror="this.parentElement.innerHTML='&#9835;'">`
+                : '&#9835;';
+              const downloaded = downloadedSongs[r.musicbrainz_id];
+              const btn = downloaded
+                ? `<button class="btn btn-play" onclick="playSong('${escAttr(r.musicbrainz_id)}')">&#9654;</button>`
+                : `<button class="btn btn-download" id="adl-${escAttr(artist.musicbrainz_id)}-${i}" onclick="downloadSong('${escAttr(r.musicbrainz_id)}', 0, 'adl-${escAttr(artist.musicbrainz_id)}-${i}')">&#8595;</button>`;
+
+              html += `<div class="result-card">
+                <div class="result-art">${artImg}</div>
+                <div class="result-info">
+                  <div class="result-title">${escHtml(r.title)}</div>
+                  ${r.album ? `<div class="result-album">${escHtml(r.album)}</div>` : ''}
+                </div>
+                <div class="result-meta">${btn}</div>
+              </div>`;
+            });
+            html += `</div>`;
+          }
+
+          html += `</div>`;
+        });
+      }
+
+      // Regular results
+      if (displayedResults.length > 0) {
+        const label = isFiltered ? 'Filtered' : 'Results';
+        html += `<div class="results-header"><h2>${label}</h2><span>${displayedResults.length} found</span></div>`;
+
+        displayedResults.forEach((r, i) => {
+          const artHtml = r.album_art_url
+            ? `<img src="${escAttr(r.album_art_url)}" alt="cover" loading="lazy" onerror="this.parentElement.innerHTML='&#9835;'">`
+            : '&#9835;';
+
+          const scoreCls = r.score >= 90 ? 'high' : r.score >= 70 ? 'mid' : '';
+          const downloaded = downloadedSongs[r.musicbrainz_id];
+
+          let actionBtn;
+          if (downloaded) {
+            actionBtn = `<button class="btn btn-play" onclick="playSong('${escAttr(r.musicbrainz_id)}')">&#9654; Play</button>`;
+          } else {
+            actionBtn = `<button class="btn btn-download" id="dl-${i}" onclick="downloadSong('${escAttr(r.musicbrainz_id)}', ${i}, 'dl-${i}')">&#8595; Download</button>`;
+          }
+
+          html += `
+            <div class="result-card">
+              <div class="result-art">${artHtml}</div>
+              <div class="result-info">
+                <div class="result-title">${escHtml(r.title)}</div>
+                <div class="result-artist">${escHtml(r.artist)}</div>
+                ${r.album ? `<div class="result-album">${escHtml(r.album)}</div>` : ''}
+              </div>
+              <div class="result-meta">
+                <span class="score-badge ${scoreCls}">${r.score}%</span>
+                ${actionBtn}
+              </div>
+            </div>`;
+        });
+      }
+
+      contentEl.innerHTML = html;
+    }
+
+    function filterByArtist(artistName) {
+      searchEl.value = artistName;
+      searchArtists = [];  // clear artists so we get pure song results
+      doSearch(false);  // full search by artist name
+    }
+
+    // Download
+    async function downloadSong(mbid, idx, btnId) {
+      const btn = document.getElementById(btnId || `dl-${idx}`);
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('downloading');
+        btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;margin:0"></div> Downloading...';
+      }
+
+      try {
+        const song = await apiPost('/api/download', { musicbrainz_id: mbid });
+        downloadedSongs[mbid] = song;
+        toast(`Downloaded "${song.title}" by ${song.artist}`, 'success');
+        renderResults();
+        playSong(mbid);
+      } catch (e) {
+        toast(`Download failed: ${e.message}`, 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('downloading');
+          btn.innerHTML = '&#8595; Download';
+        }
+      }
+    }
+
+    // Player
+    function playSong(mbid) {
+      const song = downloadedSongs[mbid];
+      if (!song || !song.file_path) { toast('No audio URL available', 'error'); return; }
+
+      // Handle relative /api/cache URLs and absolute Supabase URLs
+      const src = song.file_path.startsWith('/') ? baseUrl() + song.file_path + '?key=' + encodeURIComponent(apiKeyEl.value) : song.file_path;
+      audio.src = src;
+      audio.play();
+
+      document.getElementById('playerTitle').textContent = song.title;
+      document.getElementById('playerArtist').textContent = song.artist;
+
+      const artEl = document.getElementById('playerArt');
+      artEl.innerHTML = song.album_art_url
+        ? `<img src="${escAttr(song.album_art_url)}" alt="cover">`
+        : '';
+
+      playerBar.classList.add('visible');
+      document.getElementById('playPauseBtn').innerHTML = '&#9646;&#9646;';
+    }
+
+    function togglePlayPause() {
+      if (audio.paused) {
+        audio.play();
+        document.getElementById('playPauseBtn').innerHTML = '&#9646;&#9646;';
+      } else {
+        audio.pause();
+        document.getElementById('playPauseBtn').innerHTML = '&#9654;';
+      }
+    }
+
+    audio.addEventListener('timeupdate', () => {
+      if (!audio.duration) return;
+      const pct = (audio.currentTime / audio.duration) * 100;
+      document.getElementById('progressFill').style.width = pct + '%';
+      document.getElementById('playerTime').textContent =
+        `${fmtTime(audio.currentTime)} / ${fmtTime(audio.duration)}`;
+    });
+
+    audio.addEventListener('ended', () => {
+      document.getElementById('playPauseBtn').innerHTML = '&#9654;';
+    });
+
+    function seekAudio(e) {
+      if (!audio.duration) return;
+      const bar = document.getElementById('progressBar');
+      const rect = bar.getBoundingClientRect();
+      const pct = (e.clientX - rect.left) / rect.width;
+      audio.currentTime = pct * audio.duration;
+    }
+
+    function fmtTime(s) {
+      const m = Math.floor(s / 60);
+      const sec = Math.floor(s % 60);
+      return `${m}:${sec.toString().padStart(2, '0')}`;
+    }
+
+    // Toasts
+    function toast(msg, type = '') {
+      const el = document.createElement('div');
+      el.className = `toast ${type}`;
+      el.textContent = msg;
+      document.getElementById('toasts').appendChild(el);
+      setTimeout(() => el.remove(), 4000);
+    }
+
+    // Utils
+    function escHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    function escAttr(s) {
+      return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
+    }
+  </script>
+</body>
+</html>
