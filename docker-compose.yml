@@ -5,7 +5,7 @@ services:
     ports:
       - "6493:8000"
     volumes:
-      - ./songs:/songs
+      - "${HOST_SONGS_DIR:-./songs}:/songs"
       - ./api_keys.json:/app/api_keys.json
     env_file:
       - .env

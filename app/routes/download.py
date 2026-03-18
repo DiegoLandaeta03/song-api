@@ -63,7 +63,7 @@ def download(
     # 5. Cache locally before upload (upload deletes the temp file)
     song_cache.put(dl["file_key"], dl["file_path"])
 
-    # 6. Upload to Supabase Storage + write DB row
+    # 6. Persist locally + write metadata row
     return storage.save_song(
         musicbrainz_id=body.musicbrainz_id,
         title=title,
@@ -80,14 +80,20 @@ def download(
 
 
 def _ensure_cached(record: SongRecord):
-    """If the song isn't in local cache, download it from Supabase."""
-    file_key = record.musicbrainz_id or record.id
+    """If the song isn't in local cache, refill it from local disk path."""
+    from pathlib import Path
+
+    file_key = record.file_key or record.musicbrainz_id or record.id
     if song_cache.has(file_key):
         return
-    try:
-        import httpx
-        resp = httpx.get(record.file_path, timeout=30, follow_redirects=True)
-        if resp.status_code == 200:
-            song_cache.put_from_bytes(file_key, resp.content)
-    except Exception:
-        pass  # Graceful fallback — Supabase URL still works
+
+    # If file_path is already a cache URL, there is nothing else to do.
+    if record.file_path.startswith("/api/cache/"):
+        return
+
+    local_path = Path(record.file_path)
+    if local_path.exists() and local_path.is_file():
+        try:
+            song_cache.put(file_key, str(local_path))
+        except OSError:
+            pass

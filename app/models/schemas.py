@@ -47,7 +47,8 @@ class SongRecord(BaseModel):
     artist: str
     album: Optional[str] = None
     album_art_url: Optional[str] = None
-    file_path: str  # signed URL to the MP3 in Supabase Storage
+    file_path: str  # cache URL or local absolute path to MP3
+    file_key: Optional[str] = None
     duration_seconds: Optional[int] = None
     genres: list[str] = []
     youtube_video_id: Optional[str] = None

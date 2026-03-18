@@ -6,13 +6,15 @@ from app.auth import (
     revoke_api_key,
     validate_api_key,
 )
-from app.config import MASTER_API_KEY
+from app.config import AUTH_REQUIRED, MASTER_API_KEY
 from app.models.schemas import ApiKeyEntry, CreateKeyRequest, RevokeKeyRequest
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 def require_master(x_api_key: str = Depends(validate_api_key)) -> str:
+    if not AUTH_REQUIRED:
+        return x_api_key
     if x_api_key != MASTER_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

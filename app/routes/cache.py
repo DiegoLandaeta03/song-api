@@ -15,7 +15,7 @@ def serve_cached_song(
     request: Request,
     key: str = Query(None, description="API key (alternative to header for audio elements)"),
 ):
-    """Serve a locally cached MP3 file. Much faster than Supabase signed URLs."""
+    """Serve a locally cached MP3 file."""
     # Accept key from query param or header
     api_key = key or request.headers.get("X-API-Key", "")
     if not _is_valid_key(api_key):

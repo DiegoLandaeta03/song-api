@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import Header, HTTPException, status
 
-from app.config import API_KEYS_FILE, MASTER_API_KEY
+from app.config import API_KEYS_FILE, AUTH_REQUIRED, MASTER_API_KEY
 
 
 def _load_keys() -> dict:
@@ -18,11 +18,16 @@ def _load_keys() -> dict:
 
 
 def _save_keys(data: dict) -> None:
-    with open(API_KEYS_FILE, "w") as f:
+    path = Path(API_KEYS_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
         json.dump(data, f, indent=2)
 
 
 def validate_api_key(x_api_key: Optional[str] = Header(default=None)) -> str:
+    if not AUTH_REQUIRED:
+        return x_api_key or "auth-disabled"
+
     if not x_api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -46,6 +51,9 @@ def validate_api_key(x_api_key: Optional[str] = Header(default=None)) -> str:
 
 def _is_valid_key(key: str) -> bool:
     """Check if a key is valid without raising exceptions."""
+    if not AUTH_REQUIRED:
+        return True
+
     if not key:
         return False
     if key == MASTER_API_KEY:

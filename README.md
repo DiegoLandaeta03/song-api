@@ -1,26 +1,41 @@
 # Mixd Song API
 
-A self-hosted song search and download API powered by MusicBrainz, YouTube, and Supabase. Search for songs by title/artist, download them as MP3s, and serve them with local caching for fast playback.
+A self-hosted song search and download API powered by MusicBrainz + YouTube. Search for songs by title/artist, download them as MP3s to local disk, and serve them with local caching for fast playback.
 
 ## Quick Start
 
 ### Prerequisites
 
-- Docker & Docker Compose
-- A [Supabase](https://supabase.com) project with:
-  - A `songs` table (see [Database Setup](#database-setup))
-  - A `song-files` storage bucket
+- Python 3.11+
+- `ffmpeg` (required by `yt-dlp`)
 
 ### Run
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
 cp .env.example .env
 # Edit .env with your keys (see Configuration below)
+# For an external drive on macOS, set:
+# SONGS_DIR=/Volumes/Deegs Drive/Vanessa's Quince
 
-docker compose up -d --build
+uvicorn app.main:app --host 0.0.0.0 --port 6493
 ```
 
 The API will be available at `http://localhost:6493`. A web UI is served at the root (`/`).
+
+#### Optional: Run with Docker
+
+```bash
+cp .env.example .env
+# In .env, set SONGS_DIR=/songs for container path
+# In .env, set HOST_SONGS_DIR to your host folder (optional)
+# Example: HOST_SONGS_DIR=/Volumes/Deegs Drive/Vanessa's Quince
+
+docker compose up -d --build
+```
 
 ---
 
@@ -28,10 +43,12 @@ The API will be available at `http://localhost:6493`. A web UI is served at the 
 
 | Variable | Default | Description |
 |---|---|---|
-| `MASTER_API_KEY` | *(required)* | Admin API key for managing sub-keys |
-| `SUPABASE_URL` | *(required)* | Your Supabase project URL |
-| `SUPABASE_SERVICE_KEY` | *(required)* | Supabase service role key |
-| `SONGS_DIR` | `/songs` | Local directory for song storage |
+| `MASTER_API_KEY` | `mxd_master_local_only` | Master API key (required only when `AUTH_REQUIRED=true`) |
+| `AUTH_REQUIRED` | `false` | Require API keys for protected endpoints when set to `true` |
+| `SONGS_DIR` | `./songs` | Local directory for song storage (can be an external drive path) |
+| `SONG_LIBRARY_DIR` | `./songs/library` | Final MP3 destination folder (use this for Serato library imports) |
+| `API_KEYS_FILE` | `./api_keys.json` | Path to local JSON file for generated API keys |
+| `SONG_CACHE_DIR` | `./songs/cache` | Local on-disk cache directory for MP3 files |
 | `RATE_LIMIT` | `60/minute` | Global rate limit per IP |
 | `SEARCH_CACHE_MAX_SIZE` | `500` | Max entries in the in-memory search cache (LRU) |
 | `SONG_CACHE_MAX_MB` | `2048` | Max local disk cache for MP3 files in MB |
@@ -40,7 +57,17 @@ The API will be available at `http://localhost:6493`. A web UI is served at the 
 
 ## Authentication
 
-All endpoints (except `/api/health`) require an API key via the `X-API-Key` header.
+By default, authentication is disabled for local use (`AUTH_REQUIRED=false`).
+When disabled, you can use all endpoints without an API key.
+
+To enable authentication, set:
+
+```env
+AUTH_REQUIRED=true
+MASTER_API_KEY=your_secret_master_key
+```
+
+When auth is enabled, all endpoints (except `/api/health`) require an API key via the `X-API-Key` header.
 
 ```bash
 curl -H "X-API-Key: YOUR_KEY" http://localhost:6493/api/search ...
@@ -134,7 +161,7 @@ Or search with explicit fields:
 POST /api/download
 ```
 
-Downloads the song from YouTube, uploads to Supabase Storage, and caches locally.
+Downloads the song from YouTube, saves the MP3 locally, and caches it for fast playback.
 
 **Request body:**
 
@@ -164,7 +191,7 @@ Downloads the song from YouTube, uploads to Supabase Storage, and caches locally
 }
 ```
 
-The `file_path` will be a local cache URL (`/api/cache/{id}`) if cached, or a Supabase signed URL otherwise.
+The `file_path` will usually be a local cache URL (`/api/cache/{id}`). If a file has been evicted from cache, the API can return the local absolute path on disk.
 
 ### Get a Song
 
@@ -245,30 +272,26 @@ All admin endpoints require the master API key.
 
 ---
 
-## Database Setup
+## Local Library Layout
 
-Create a `songs` table in your Supabase project:
+Songs are saved to `SONG_LIBRARY_DIR` as MP3 files:
 
-```sql
-CREATE TABLE songs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  musicbrainz_id TEXT UNIQUE,
-  title TEXT NOT NULL,
-  artist TEXT NOT NULL,
-  album TEXT,
-  album_art_url TEXT,
-  file_key TEXT NOT NULL UNIQUE,
-  duration_seconds INTEGER,
-  youtube_video_id TEXT,
-  youtube_title TEXT,
-  genres TEXT[] DEFAULT '{}',
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX idx_songs_mbid ON songs(musicbrainz_id);
+```text
+{artist} - {title}.mp3
 ```
 
-Create a `song-files` storage bucket (public or private, the API uses signed URLs).
+If a filename already exists, the API appends ` (2)`, ` (3)`, etc.
+
+Each file is tagged with ID3 metadata (`title`, `artist`, `album`, and `genre` when available), so DJ software like Serato can populate columns correctly.
+When album art is available from MusicBrainz metadata, it is embedded into the MP3 as cover art.
+
+Metadata is stored in a local JSON manifest at:
+
+```text
+{SONGS_DIR}/manifest.json
+```
+
+This format is friendly for importing into DJ software like Serato.
 
 ---
 
@@ -277,11 +300,11 @@ Create a `song-files` storage bucket (public or private, the API uses signed URL
 ```
 Client  ->  FastAPI  ->  MusicBrainz (search/metadata)
                      ->  YouTube (download via yt-dlp)
-                     ->  Supabase Storage (persistent MP3 storage)
+                     ->  Local MP3 library (persistent storage)
                      ->  Local disk cache (fast playback)
 ```
 
 - **Search cache**: In-memory LRU with 1-hour TTL. Configurable max size.
-- **Song cache**: On-disk LRU. MP3s served directly, bypassing Supabase for cached songs. Configurable max size in MB.
+- **Song cache**: On-disk LRU. MP3s served directly from local cache. Configurable max size in MB.
 - **Smart search**: Tries title/artist field splits in both directions to find the best match. Parallel MusicBrainz queries.
 - **Artist detection**: When a query matches an artist, returns the artist card with their top songs ranked by popularity.
