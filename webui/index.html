@@ -158,6 +158,75 @@
       opacity: 0.6;
     }
 
+    /* Spotify */
+    .spotify-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .spotify-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.8rem;
+    }
+
+    .spotify-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    .spotify-sub {
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      margin-top: 0.15rem;
+    }
+
+    .spotify-row {
+      display: flex;
+      gap: 0.6rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .spotify-row select {
+      min-width: 260px;
+      max-width: 100%;
+      padding: 0.55rem 0.75rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+    }
+
+    .spotify-table-wrap {
+      margin-top: 0.8rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .spotify-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+
+    .spotify-table th, .spotify-table td {
+      padding: 0.55rem 0.6rem;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+    }
+
+    .spotify-table tr:last-child td { border-bottom: none; }
+    .spotify-table .ok { color: var(--green); font-weight: 600; }
+    .spotify-table .warn { color: var(--orange); font-weight: 600; }
+    .spotify-table .bad { color: var(--red); font-weight: 600; }
+
     /* Status */
     .status {
       text-align: center;
@@ -569,6 +638,25 @@
       <span class="search-hint">Enter to search</span>
     </div>
 
+    <div class="spotify-panel">
+      <div class="spotify-header">
+        <div>
+          <div class="spotify-title">Spotify Playlists</div>
+          <div class="spotify-sub" id="spotifyStatus">Not connected</div>
+        </div>
+        <button class="btn btn-download" id="spotifyConnectBtn" onclick="connectSpotify()">Connect Spotify</button>
+      </div>
+      <div class="spotify-row">
+        <select id="spotifyPlaylistSelect" disabled>
+          <option value="">Select a playlist...</option>
+        </select>
+        <button class="btn btn-download" id="spotifyLoadBtn" onclick="loadSpotifyTracks()" disabled>Load Tracks</button>
+        <button class="btn btn-download" id="spotifyDownloadSelectedBtn" onclick="downloadSelectedSpotify()" disabled>Download Selected</button>
+        <button class="btn btn-download" id="spotifyDownloadAllBtn" onclick="downloadAllSpotify()" disabled>Download All</button>
+      </div>
+      <div class="spotify-table-wrap" id="spotifyTableWrap" style="display:none"></div>
+    </div>
+
     <div id="content">
       <div class="status" id="emptyState">Type a song name or "Artist - Title" to get started</div>
     </div>
@@ -601,6 +689,8 @@
     let searchArtists = [];
     let displayedResults = [];
     let downloadedSongs = {};  // mbid -> SongRecord
+    let spotifyPlaylists = [];
+    let spotifyTracks = [];
     const audio = document.getElementById('audioEl');
 
     // --- Local search cache ---
@@ -617,6 +707,12 @@
     const healthDot = document.getElementById('healthDot');
     const healthTooltip = document.getElementById('healthTooltip');
     const playerBar = document.getElementById('playerBar');
+    const spotifyStatusEl = document.getElementById('spotifyStatus');
+    const spotifyPlaylistEl = document.getElementById('spotifyPlaylistSelect');
+    const spotifyLoadBtn = document.getElementById('spotifyLoadBtn');
+    const spotifyDownloadSelectedBtn = document.getElementById('spotifyDownloadSelectedBtn');
+    const spotifyDownloadAllBtn = document.getElementById('spotifyDownloadAllBtn');
+    const spotifyTableWrap = document.getElementById('spotifyTableWrap');
 
     // Persist config
     if (localStorage.getItem('mixd_url')) apiUrlEl.value = localStorage.getItem('mixd_url');
@@ -624,10 +720,26 @@
 
     apiUrlEl.addEventListener('change', () => localStorage.setItem('mixd_url', apiUrlEl.value));
     apiKeyEl.addEventListener('change', () => localStorage.setItem('mixd_key', apiKeyEl.value));
+    spotifyPlaylistEl.addEventListener('change', () => {
+      spotifyLoadBtn.disabled = !spotifyPlaylistEl.value;
+    });
 
     // API helpers
     function baseUrl() { return (apiUrlEl.value || window.location.origin).replace(/\/+$/, ''); }
-    function headers() { return { 'Content-Type': 'application/json', 'X-API-Key': apiKeyEl.value }; }
+    function headers() {
+      const h = { 'Content-Type': 'application/json' };
+      if (apiKeyEl.value) h['X-API-Key'] = apiKeyEl.value;
+      return h;
+    }
+
+    async function apiGet(path) {
+      const res = await fetch(baseUrl() + path, { headers: headers() });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `${res.status} ${res.statusText}`);
+      }
+      return res.json();
+    }
 
     async function apiPost(path, body) {
       const res = await fetch(baseUrl() + path, {
@@ -654,6 +766,14 @@
 
     healthDot.addEventListener('click', checkHealth);
     checkHealth();
+
+    window.addEventListener('message', (ev) => {
+      if (ev.data && ev.data.type === 'spotify_connected') {
+        toast('Spotify connected', 'success');
+        checkSpotifyStatus();
+      }
+    });
+    checkSpotifyStatus();
 
     // --- Search logic ---
     let searchTimeout = null;
@@ -709,7 +829,6 @@
     async function doSearch(fast = false) {
       const query = searchEl.value.trim();
       if (!query) return;
-      if (!apiKeyEl.value) { toast('Enter your API key first', 'error'); return; }
 
       const cacheKey = query.toLowerCase();
 
@@ -862,6 +981,172 @@
       doSearch(false);  // full search by artist name
     }
 
+    // Spotify
+    async function checkSpotifyStatus() {
+      try {
+        const data = await apiGet('/api/spotify/status');
+        if (!data.configured) {
+          spotifyStatusEl.textContent = 'Spotify is not configured on backend';
+          return;
+        }
+        if (!data.connected) {
+          spotifyStatusEl.textContent = 'Configured, not connected';
+          return;
+        }
+        spotifyStatusEl.textContent = `Connected as ${data.display_name || data.id || 'Spotify user'}`;
+        await loadSpotifyPlaylists();
+      } catch (e) {
+        spotifyStatusEl.textContent = `Spotify error: ${e.message}`;
+      }
+    }
+
+    async function connectSpotify() {
+      try {
+        const data = await apiGet('/api/spotify/auth-url');
+        window.open(data.auth_url, 'spotify_auth', 'width=520,height=760');
+      } catch (e) {
+        toast(`Spotify connect failed: ${e.message}`, 'error');
+      }
+    }
+
+    async function loadSpotifyPlaylists() {
+      try {
+        const data = await apiGet('/api/spotify/playlists');
+        spotifyPlaylists = data.items || [];
+        spotifyPlaylistEl.innerHTML = '<option value="">Select a playlist...</option>' +
+          spotifyPlaylists.map(p => `<option value="${escAttr(p.id)}">${escHtml(p.name)} (${p.tracks_total})</option>`).join('');
+        spotifyPlaylistEl.disabled = spotifyPlaylists.length === 0;
+        spotifyLoadBtn.disabled = spotifyPlaylists.length === 0;
+        spotifyDownloadSelectedBtn.disabled = true;
+        spotifyDownloadAllBtn.disabled = true;
+      } catch (e) {
+        toast(`Load playlists failed: ${e.message}`, 'error');
+      }
+    }
+
+    async function loadSpotifyTracks() {
+      const playlistId = spotifyPlaylistEl.value;
+      if (!playlistId) {
+        toast('Pick a Spotify playlist first', 'error');
+        return;
+      }
+
+      spotifyTableWrap.style.display = '';
+      spotifyTableWrap.innerHTML = `<div class="status"><div class="spinner"></div><br>Loading playlist tracks...</div>`;
+      try {
+        const data = await apiGet(`/api/spotify/playlists/${encodeURIComponent(playlistId)}/items?resolve=true`);
+        spotifyTracks = (data.items || []).map(t => ({ ...t, selected: !!t.musicbrainz_id }));
+        renderSpotifyTracks();
+      } catch (e) {
+        spotifyTableWrap.innerHTML = `<div class="status error">${escHtml(e.message)}</div>`;
+      }
+    }
+
+    function renderSpotifyTracks() {
+      if (!spotifyTracks.length) {
+        spotifyTableWrap.style.display = '';
+        spotifyTableWrap.innerHTML = `<div class="status">No tracks found in this playlist</div>`;
+        spotifyDownloadSelectedBtn.disabled = true;
+        spotifyDownloadAllBtn.disabled = true;
+        return;
+      }
+
+      const selectableCount = spotifyTracks.filter(t => t.musicbrainz_id).length;
+      spotifyDownloadSelectedBtn.disabled = selectableCount === 0;
+      spotifyDownloadAllBtn.disabled = selectableCount === 0;
+
+      const allChecked = selectableCount > 0 && spotifyTracks.filter(t => t.musicbrainz_id).every(t => t.selected);
+
+      const rows = spotifyTracks.map((t, i) => {
+        const statusCls = t.musicbrainz_id ? (t.match_score >= 90 ? 'ok' : 'warn') : 'bad';
+        const statusLabel = t.musicbrainz_id
+          ? `Matched${t.match_score ? ` (${t.match_score}%)` : ''}`
+          : 'No match';
+        return `
+          <tr>
+            <td><input type="checkbox" ${t.selected && t.musicbrainz_id ? 'checked' : ''} ${t.musicbrainz_id ? '' : 'disabled'} onchange="toggleSpotifyTrack(${i}, this.checked)"></td>
+            <td>${escHtml(t.title)}</td>
+            <td>${escHtml(t.artist)}</td>
+            <td>${escHtml(t.album || '')}</td>
+            <td class="${statusCls}">${escHtml(statusLabel)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      spotifyTableWrap.style.display = '';
+      spotifyTableWrap.innerHTML = `
+        <table class="spotify-table">
+          <thead>
+            <tr>
+              <th><input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleAllSpotify(this.checked)"></th>
+              <th>Song</th>
+              <th>Artist</th>
+              <th>Album</th>
+              <th>Match</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function toggleSpotifyTrack(idx, checked) {
+      if (!spotifyTracks[idx]) return;
+      spotifyTracks[idx].selected = checked;
+    }
+
+    function toggleAllSpotify(checked) {
+      spotifyTracks = spotifyTracks.map(t => ({ ...t, selected: checked && !!t.musicbrainz_id }));
+      renderSpotifyTracks();
+    }
+
+    async function downloadSelectedSpotify() {
+      const items = spotifyTracks.filter(t => t.selected && t.musicbrainz_id);
+      await downloadSpotifyItems(items);
+    }
+
+    async function downloadAllSpotify() {
+      const items = spotifyTracks.filter(t => t.musicbrainz_id);
+      await downloadSpotifyItems(items);
+    }
+
+    async function downloadSpotifyItems(items) {
+      if (!items.length) {
+        toast('No matched tracks selected', 'error');
+        return;
+      }
+      spotifyDownloadSelectedBtn.disabled = true;
+      spotifyDownloadAllBtn.disabled = true;
+      toast(`Downloading ${items.length} track(s)...`);
+      try {
+        const payload = {
+          items: items.map(t => ({
+            musicbrainz_id: t.musicbrainz_id,
+            title: t.title,
+            artist: t.artist,
+          })),
+        };
+        const res = await apiPost('/api/spotify/download', payload);
+        const ok = res.success || 0;
+        const failed = res.failed || 0;
+
+        (res.items || []).forEach(it => {
+          if (it.status === 'downloaded' && it.song && it.song.musicbrainz_id) {
+            downloadedSongs[it.song.musicbrainz_id] = it.song;
+          }
+        });
+        renderResults();
+        renderSpotifyTracks();
+        toast(`Spotify batch complete: ${ok} downloaded, ${failed} failed`, failed ? 'error' : 'success');
+      } catch (e) {
+        toast(`Batch download failed: ${e.message}`, 'error');
+      } finally {
+        const selectableCount = spotifyTracks.filter(t => t.musicbrainz_id).length;
+        spotifyDownloadSelectedBtn.disabled = selectableCount === 0;
+        spotifyDownloadAllBtn.disabled = selectableCount === 0;
+      }
+    }
+
     // Download
     async function downloadSong(mbid, idx, btnId) {
       const btn = document.getElementById(btnId || `dl-${idx}`);
@@ -892,8 +1177,10 @@
       const song = downloadedSongs[mbid];
       if (!song || !song.file_path) { toast('No audio URL available', 'error'); return; }
 
-      // Handle relative /api/cache URLs and absolute Supabase URLs
-      const src = song.file_path.startsWith('/') ? baseUrl() + song.file_path + '?key=' + encodeURIComponent(apiKeyEl.value) : song.file_path;
+      // Handle relative /api/cache URLs and absolute local paths/URLs
+      const src = song.file_path.startsWith('/')
+        ? baseUrl() + song.file_path + (apiKeyEl.value ? ('?key=' + encodeURIComponent(apiKeyEl.value)) : '')
+        : song.file_path;
       audio.src = src;
       audio.play();
 
@@ -962,7 +1249,11 @@
     }
 
     function escAttr(s) {
-      return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;');
     }
   </script>
 </body>

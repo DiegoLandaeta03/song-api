@@ -49,6 +49,10 @@ docker compose up -d --build
 | `SONG_LIBRARY_DIR` | `./songs/library` | Final MP3 destination folder (use this for Serato library imports) |
 | `API_KEYS_FILE` | `./api_keys.json` | Path to local JSON file for generated API keys |
 | `SONG_CACHE_DIR` | `./songs/cache` | Local on-disk cache directory for MP3 files |
+| `SPOTIFY_CLIENT_ID` | *(empty)* | Spotify app client ID for playlist import |
+| `SPOTIFY_CLIENT_SECRET` | *(empty)* | Spotify app client secret for OAuth token exchange |
+| `SPOTIFY_REDIRECT_URI` | *(empty)* | Redirect URI configured in Spotify app (recommended: `http://127.0.0.1:6493/api/spotify/callback`) |
+| `SPOTIFY_TOKEN_FILE` | `./spotify_token.json` | Local file used to persist Spotify OAuth tokens |
 | `RATE_LIMIT` | `60/minute` | Global rate limit per IP |
 | `SEARCH_CACHE_MAX_SIZE` | `500` | Max entries in the in-memory search cache (LRU) |
 | `SONG_CACHE_MAX_MB` | `2048` | Max local disk cache for MP3 files in MB |
@@ -85,6 +89,32 @@ Regular keys are created/revoked via the admin endpoints.
 ---
 
 ## API Reference
+
+### Spotify Playlists (Optional)
+
+You can connect your Spotify account to browse playlists, resolve tracks to MusicBrainz IDs, and batch-download using the same YouTube + MusicBrainz flow.
+
+Required env vars for Spotify features:
+
+```env
+SPOTIFY_CLIENT_ID=...
+SPOTIFY_CLIENT_SECRET=...
+SPOTIFY_REDIRECT_URI=http://127.0.0.1:6493/api/spotify/callback
+```
+
+Use `127.0.0.1` for Spotify local OAuth callbacks to avoid "URI is not secure" issues with non-HTTPS redirects.
+
+Key endpoints:
+
+```
+GET  /api/spotify/status
+GET  /api/spotify/auth-url
+GET  /api/spotify/callback
+GET  /api/spotify/playlists
+GET  /api/spotify/playlists/{playlist_id}/items?resolve=true
+POST /api/spotify/download
+POST /api/spotify/logout
+```
 
 ### Search Songs
 

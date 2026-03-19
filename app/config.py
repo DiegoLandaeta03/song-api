@@ -39,8 +39,15 @@ SEARCH_CACHE_MAX_SIZE: int = int(os.getenv("SEARCH_CACHE_MAX_SIZE", "500"))
 SONG_CACHE_DIR: str = _resolve_path(os.getenv("SONG_CACHE_DIR", f"{SONGS_DIR}/cache"))
 SONG_CACHE_MAX_MB: float = float(os.getenv("SONG_CACHE_MAX_MB", "2048"))  # default 2 GB
 
+# Spotify integration (optional)
+SPOTIFY_CLIENT_ID: str = os.getenv("SPOTIFY_CLIENT_ID", "")
+SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+SPOTIFY_REDIRECT_URI: str = os.getenv("SPOTIFY_REDIRECT_URI", "")
+SPOTIFY_TOKEN_FILE: str = _resolve_path(os.getenv("SPOTIFY_TOKEN_FILE", "./spotify_token.json"))
+
 # Ensure local file-system targets exist for local runs.
 Path(SONGS_DIR).mkdir(parents=True, exist_ok=True)
 Path(SONG_LIBRARY_DIR).mkdir(parents=True, exist_ok=True)
 Path(SONG_CACHE_DIR).mkdir(parents=True, exist_ok=True)
 Path(API_KEYS_FILE).parent.mkdir(parents=True, exist_ok=True)
+Path(SPOTIFY_TOKEN_FILE).parent.mkdir(parents=True, exist_ok=True)

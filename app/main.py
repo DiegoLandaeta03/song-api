@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import RATE_LIMIT
-from app.routes import health, search, download, songs, admin, cache
+from app.routes import health, search, download, songs, admin, cache, spotify
 
 limiter = Limiter(key_func=get_remote_address, default_limits=[RATE_LIMIT])
 
@@ -31,6 +31,7 @@ app.include_router(download.router, prefix="/api")
 app.include_router(songs.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(cache.router, prefix="/api")
+app.include_router(spotify.router, prefix="/api")
 
 # Serve Web UI
 _webui_dir = Path(__file__).resolve().parent.parent / "webui"
